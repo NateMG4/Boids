@@ -407,19 +407,18 @@ MonoBehaviour:
   drawThrust: 0
   drawTarg: 0
   minTargetVector: 0
-  controlMode: 0
-  kP: 1
+  setPoint: {x: 0, y: 0}
+  setPointMode: 1
+  kP: 15
   kI: 0
-  kD: 0
+  kD: 9
   resultantTorque: 0
-  DerivativeTimeScale: 0.5
+  convergenceTime: 0
+  DerivativeTimeScale: 0.1
   derivativeTimer: 0
-  torquePIDTimer: 0
   prevError: 0
-  totalError: 0
   derivative: 0
-  intergral: 0
-  maxTorque: 5
+  angleTolerance: 0.5
 --- !u!50 &1784767034
 Rigidbody2D:
   serializedVersion: 4

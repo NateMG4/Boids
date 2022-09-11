@@ -23,7 +23,7 @@ public class BoidController : MonoBehaviour
     void Update()
     {
 
-        setAverageFlockVectors();
+        // setAverageFlockVectors();
         // if(Input.GetMouseButtonDown(0)){
         //     Vector3 mousePos = new Vector3(Input.mousePosition.x, Input.mousePosition.y, 0);
         //     mousePos = Camera.main.ScreenToWorldPoint(mousePos);

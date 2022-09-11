@@ -58,7 +58,7 @@ public class Boid : MonoBehaviour
         drawFlock = true;
         body = GetComponent<Rigidbody2D>();
 
-        drawVel = false;
+        drawVel = true;
         drawThrust = false;
         drawTarg = true;
 
@@ -99,12 +99,15 @@ public class Boid : MonoBehaviour
         float v = Input.GetAxis("Vertical");
         angularVelocity = body.angularVelocity;
         
-        if(setPointMode && Input.GetMouseButtonDown(0)){
-            Vector2 mousePos = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
-            mousePos = Camera.main.ScreenToWorldPoint(mousePos);
-            setTargetVector(mousePos - body.position);
-            convergenceTime = 0;
+        if(setPointMode){
+            if(Input.GetMouseButtonDown(0)){
+                setPoint = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
+                setPoint = Camera.main.ScreenToWorldPoint(setPoint);
+                convergenceTime = 0;
+            }
+            setTargetVector(setPoint - body.position);
         }
+        
         screenWrap();
 
         // if(targetVector.magnitude < minTargetVector){
@@ -112,10 +115,7 @@ public class Boid : MonoBehaviour
         //     targetVector.y += (Mathf.Sign(targetVector.y) *thrustStrength);
 
         // }
-        targetVectorMag = targetVector.magnitude;
-
-        normalizeSpin();
-        // adjustToTargetVector();
+        adjustToTargetVector();
 
 
         // Vector2 thrust = v*thrustStrength*ThrustUnitVector();
@@ -190,9 +190,9 @@ public class Boid : MonoBehaviour
     // public float intergral = 0f;
     public float angleTolerance = .5f;
 
-    void normalizeSpin(){
-
-        angleError = -Vector2.SignedAngle(targetVector, ThrustUnitVector());
+    void turnToVector(Vector2 desiredVector){
+        Debug.Log("Turning!");
+        angleError = -Vector2.SignedAngle(desiredVector, ThrustUnitVector());
         angularVelocity = body.angularVelocity;
 
         if(Mathf.Abs(angleError) > angleTolerance){
@@ -210,18 +210,15 @@ public class Boid : MonoBehaviour
         }
 
     }
+    public Vector2 desiredThrust;
     void adjustToTargetVector(){
         Debug.Log("Adjusting!");
         currentVector = body.velocity;
-        if((currentVector - targetVector).magnitude < tolerance || targetVector.magnitude < 2.0){
-            normalizeSpin();
-            return;
-        }
-        Vector2 desiredThrust = (targetVector - currentVector).normalized;
-        
+        desiredThrust = (targetVector - currentVector).normalized;
         Vector2 thrustVector = ThrustUnitVector()*thrustStrength;        
+        turnToVector(desiredThrust);
 
-        // Debug.DrawRay(body.position + currentVector*vectorScaler , thrustVector * Time.deltaTime * vectorScaler, Color.green);
+        Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler * 20, Color.green);
         
         // if(ifThrustError < currentError){
         if(Vector2.Dot(desiredThrust, thrustVector.normalized) > .5f){
@@ -234,20 +231,20 @@ public class Boid : MonoBehaviour
         }
 
 
-        Vector2 R = ThrustUnitVector(angularVelocity*Time.deltaTime);//*thrustStrength;
-        Vector2 LeftR = ThrustUnitVector((angularVelocity+torqueStrength*Time.deltaTime)*Time.deltaTime);//*thrustStrength;
-        Vector2 RightR = ThrustUnitVector((angularVelocity-torqueStrength*Time.deltaTime)*Time.deltaTime);//*thrustStrength;
+        // Vector2 R = ThrustUnitVector(angularVelocity*Time.deltaTime);//*thrustStrength;
+        // Vector2 LeftR = ThrustUnitVector((angularVelocity+torqueStrength*Time.deltaTime)*Time.deltaTime);//*thrustStrength;
+        // Vector2 RightR = ThrustUnitVector((angularVelocity-torqueStrength*Time.deltaTime)*Time.deltaTime);//*thrustStrength;
 
-        float dotR = Vector2.Dot(desiredThrust, R);
-        float dotLeftR = Vector2.Dot(desiredThrust, LeftR);
-        float dotRightR = Vector2.Dot(desiredThrust, RightR);
+        // float dotR = Vector2.Dot(desiredThrust, R);
+        // float dotLeftR = Vector2.Dot(desiredThrust, LeftR);
+        // float dotRightR = Vector2.Dot(desiredThrust, RightR);
 
-        if(dotLeftR > dotR && dotLeftR > dotRightR){
-            body.AddTorque(torqueStrength);
-        }
-        else if(dotRightR > dotR){
-            body.AddTorque(-torqueStrength);
-        }
+        // if(dotLeftR > dotR && dotLeftR > dotRightR){
+        //     body.AddTorque(torqueStrength);
+        // }
+        // else if(dotRightR > dotR){
+        //     body.AddTorque(-torqueStrength);
+        // }
 
 
     }
