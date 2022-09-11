@@ -403,9 +403,9 @@ MonoBehaviour:
   allBoids: {fileID: 0}
   viewRange: 0
   drawFlock: 0
-  drawVel: 0
-  drawThrust: 0
-  drawTarg: 0
+  drawVel: 1
+  drawThrust: 1
+  drawTarg: 1
   minTargetVector: 0
   setPoint: {x: 0, y: 0}
   setPointMode: 1
@@ -419,6 +419,7 @@ MonoBehaviour:
   prevError: 0
   derivative: 0
   angleTolerance: 0.5
+  desiredThrust: {x: 0, y: 0}
 --- !u!50 &1784767034
 Rigidbody2D:
   serializedVersion: 4
