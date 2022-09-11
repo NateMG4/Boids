@@ -1,8 +1,11 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 public class Boid : MonoBehaviour
 {
+
+    // might try turning on the show refrences code lense to see if some of these are pointless 
+
     public float vectorScaler;
     [SerializeField] float thrustStrength;
     [SerializeField] float torqueStrength;
@@ -32,9 +35,15 @@ public class Boid : MonoBehaviour
     // mode 1: follows mouse
     // mode 2: follows mouse dosnt affect neighbor vectors
     public float minTargetVector;
-    
+    public Vector2 setPoint;
+    public bool setPointMode;
 
-    public int controlMode;
+    public float kP;
+    public float kI;
+    public float kD;
+    public float resultantTorque;
+
+    public float convergenceTime = 0f;
 
     // Start is called before the first frame update
     void Start()
@@ -52,14 +61,17 @@ public class Boid : MonoBehaviour
         drawVel = false;
         drawThrust = false;
         drawTarg = true;
-        controlMode = 0;
+
+        setPoint = new Vector2(0f, 0f);
+        // setPointMode = false;
+        // kP = 1;
+        // kI = .01f;
+        // kD = .25f;
         // if(Random.Range(0, 100) < 10){
         //     controlMode = 1;
         // }
         targetVector = new Vector2(Random.Range(-10, 10), Random.Range(-10, 10));
-        body.velocity = new Vector2(Random.Range(-1, 1), Random.Range(-1, 1));
-        minTargetVector = 1;
-
+        // body.velocity = new Vector2(Random.Range(-1, 1), Random.Range(-1, 1));
     }
     public Vector2 getPosition(){
         return body.position;
@@ -82,14 +94,16 @@ public class Boid : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+
         float h = Input.GetAxis("Horizontal");
         float v = Input.GetAxis("Vertical");
         angularVelocity = body.angularVelocity;
         
-        if(controlMode == 1){
+        if(setPointMode && Input.GetMouseButtonDown(0)){
             Vector2 mousePos = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
             mousePos = Camera.main.ScreenToWorldPoint(mousePos);
             setTargetVector(mousePos - body.position);
+            convergenceTime = 0;
         }
         screenWrap();
 
@@ -100,13 +114,13 @@ public class Boid : MonoBehaviour
         // }
         targetVectorMag = targetVector.magnitude;
 
+        normalizeSpin();
+        // adjustToTargetVector();
 
-        adjustToTargetVector();
 
-
-        Vector2 thrust = v*thrustStrength*ThrustUnitVector();
-        body.AddForce(thrust);
-        Debug.DrawRay(body.position, thrust*vectorScaler, Color.red);
+        // Vector2 thrust = v*thrustStrength*ThrustUnitVector();
+        // body.AddForce(thrust);
+        // Debug.DrawRay(body.position, thrust*vectorScaler, Color.red);
 
         torque = -h*torqueStrength;
         body.AddTorque(torque);
@@ -116,7 +130,7 @@ public class Boid : MonoBehaviour
             Debug.DrawRay(body.position, currentVector*vectorScaler, Color.yellow);
         }
         if(drawTarg){
-            if(controlMode == 0){
+            if(!setPointMode){
                 Debug.DrawRay(body.position, targetVector*vectorScaler, Color.magenta);
             }
             else{
@@ -166,19 +180,35 @@ public class Boid : MonoBehaviour
         float e = Mathf.Abs(Vector2.Angle(target, v));
         return e;
     }
-    void normalizeSpin(){
-        if(targetVector.magnitude < 2.0){
-            return;
-        }
-        angleError = Vector2.SignedAngle(targetVector, ThrustUnitVector());
-        angularVelocity = body.angularVelocity;
-        if(angleError < 0 && body.angularVelocity < torqueStrength){
-            body.AddTorque(torqueStrength);
-        }
-        else if(angleError > 0 && body.angularVelocity > -torqueStrength){
-            body.AddTorque(-torqueStrength);
 
+    public float DerivativeTimeScale = .5f;
+    public float derivativeTimer = 0f;
+
+    public float prevError = 0f;
+    // public float totalError = 0f;
+    public float derivative = 0f;
+    // public float intergral = 0f;
+    public float angleTolerance = .5f;
+
+    void normalizeSpin(){
+
+        angleError = -Vector2.SignedAngle(targetVector, ThrustUnitVector());
+        angularVelocity = body.angularVelocity;
+
+        if(Mathf.Abs(angleError) > angleTolerance){
+            // intergral += angleError * Time.deltaTime;
+            if(derivativeTimer > DerivativeTimeScale){
+                derivative = (angleError - prevError) / derivativeTimer;
+                derivativeTimer = 0;
+                prevError = angleError;
+            }
+            derivativeTimer += Time.deltaTime;
+
+            resultantTorque = (kP * angleError) + /*(kI * intergral) +*/ (kD * derivative);
+            convergenceTime += Time.deltaTime;
+            body.AddTorque(resultantTorque);
         }
+
     }
     void adjustToTargetVector(){
         Debug.Log("Adjusting!");
@@ -225,6 +255,8 @@ public class Boid : MonoBehaviour
         currentVector = body.velocity;
         float xError = targetVector.x - currentVector.x;
         float yError = targetVector.y - currentVector.y;
+        
     }
+    
 
 }

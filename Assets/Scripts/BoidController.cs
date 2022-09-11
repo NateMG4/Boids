@@ -24,16 +24,16 @@ public class BoidController : MonoBehaviour
     {
 
         setAverageFlockVectors();
-        if(Input.GetMouseButtonDown(0)){
-            Vector3 mousePos = new Vector3(Input.mousePosition.x, Input.mousePosition.y, 0);
-            mousePos = Camera.main.ScreenToWorldPoint(mousePos);
-            mousePos.z = 0;
-            Boid b = Instantiate(orignialBoid, mousePos, Quaternion.Euler(0, 0, 0));
-            b.name = "Boid";
-            boids.Add(b);
-            boidArray = GameObject.FindObjectsOfType<Boid>();
+        // if(Input.GetMouseButtonDown(0)){
+        //     Vector3 mousePos = new Vector3(Input.mousePosition.x, Input.mousePosition.y, 0);
+        //     mousePos = Camera.main.ScreenToWorldPoint(mousePos);
+        //     mousePos.z = 0;
+        //     Boid b = Instantiate(orignialBoid, mousePos, Quaternion.Euler(0, 0, 0));
+        //     b.name = "Boid";
+        //     boids.Add(b);
+        //     boidArray = GameObject.FindObjectsOfType<Boid>();
 
-        }
+        // }
     }
     void setAverageFlockVectors(){
         Vector2 averageTargetVector;
@@ -43,7 +43,7 @@ public class BoidController : MonoBehaviour
             averageTargetVector = new Vector2(0, 0);
             neighborsInRange = 0;
             flock = new ArrayList();
-            if(b.controlMode == 0){
+            // if(b.controlMode == 0){
                 foreach(Boid bNeighbor in boids){
                     float dist = Mathf.Abs((b.getPosition() - bNeighbor.getPosition()).magnitude);
                     if(dist < b.viewRange){
@@ -63,7 +63,7 @@ public class BoidController : MonoBehaviour
                 Debug.Log("Neighbors In Range " + neighborsInRange);
                 b.drawFlockRays(flock);
 
-            }
+            // }
         }
 
     }
