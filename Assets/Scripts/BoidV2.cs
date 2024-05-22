@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Xml.Schema;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.UIElements;
@@ -15,22 +17,26 @@ public class BoidV2 : MonoBehaviour
     public float rotationStopTime;
     
     public float OrientationAngle;
-    public float estimateStopedAngle;
+    public float estimateAngleChange;
     public bool TestTurnToAngle;
     public float AngularVelocity;
     public float appliedForce;
     public float vError;
     public float fixedUpdateTime;
     public float testVelocity;
+    private float totalForce;
+    public float setAngle;
+    public UnityEngine.UI.Button testButton;
     // Start is called before the first frame update
     void Start()
     {
-        rotationStrength = 20;
-        thrustStrength = 5;
+        // rotationStrength = 20;
+        // thrustStrength = 5;
         gameObject.SetActive(true);
         body = GetComponent<Rigidbody2D>();
-        body.rotation = 90;
-        body.angularVelocity = 1f;
+        // body.rotation = 90;
+        // body.angularVelocity = 1f;
+        testButton.onClick.AddListener(test);
     }
 
     // Update is called once per frame
@@ -39,8 +45,8 @@ public class BoidV2 : MonoBehaviour
         OrientationAngle = Orientation() % 360;
         float h = Input.GetAxis("Horizontal");
         float v = Input.GetAxis("Vertical");
-        body.velocity = ThrustUnitVector() * v * thrustStrength;
-        float torque = -h * rotationStrength * Time.deltaTime;
+        // body.velocity = ThrustUnitVector() * v * thrustStrength;
+        totalForce = -h * rotationStrength * Time.deltaTime;
         // body.AddTorque(torque);
         // rotationStopTime = calculateRotationalConvergenceTime();
 
@@ -53,7 +59,7 @@ public class BoidV2 : MonoBehaviour
         if(Input.GetKey(KeyCode.LeftShift)){
             stopRotation();
         }
-        TestTurnToAngle = Input.GetKey(KeyCode.Space) ? true : TestTurnToAngle;
+        // TestTurnToAngle = Input.GetKey(KeyCode.Space) ? true : TestTurnToAngle;
 
         
     }
@@ -62,10 +68,13 @@ public class BoidV2 : MonoBehaviour
         AngularVelocity = body.angularVelocity;
         fixedUpdateTime = Time.fixedDeltaTime;
         if(TestTurnToAngle){
-            body.AddTorque(rotationStrength / Time.fixedDeltaTime, ForceMode2D.Force);
-            TestTurnToAngle = false;
-            // TurnToAngle(0);
+
+            TurnToAngle(setAngle);
         }
+        // body.AddTorque(totalForce, ForceMode2D.Force);
+    }
+    void test(){
+        TestTurnToAngle = true;
     }
     float OrientationRadians()
     {
@@ -81,19 +90,25 @@ public class BoidV2 : MonoBehaviour
         float bodyAngle = Orientation()%360;
         float deltaAngle = angle - bodyAngle;
         float stopTime = calculateRotationalConvergenceTime();
-        float estimatedAngle = calculateRotation(stopTime);
-        estimateStopedAngle = estimatedAngle;
+        float estimatedDeltaAngle = calculateRotation(stopTime);
+        float estimatedAngle = estimatedDeltaAngle + Orientation();
+        estimateAngleChange = estimatedDeltaAngle;
 
-        int direction = -Math.Sign(body.angularVelocity);
+        int direction = Math.Sign(deltaAngle);
         float velocityError = rotationStrength * Time.fixedDeltaTime;
         vError = velocityError;
-        if(body.angularVelocity > velocityError || body.angularVelocity < -velocityError){
-            appliedForce = direction * rotationStrength;
+        float  angleError = 5f;
+        if(Math.Abs(estimatedDeltaAngle) < Math.Abs(deltaAngle)-angleError){
+            appliedForce = direction * rotationStrength * Mathf.Deg2Rad;
+            body.AddTorque(appliedForce, ForceMode2D.Force);
+        }
+        else if(body.angularVelocity > velocityError || body.angularVelocity < -velocityError){
+            appliedForce = -direction * rotationStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
         else{
             body.angularVelocity = 0;
-            TestTurnToAngle = false;
+            // TestTurnToAngle = false;
         }
 
     }
