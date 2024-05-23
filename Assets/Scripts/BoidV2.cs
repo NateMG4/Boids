@@ -1,9 +1,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Xml.Schema;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
+using UnityEditor.Tilemaps;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.UIElements;
@@ -12,21 +13,21 @@ using UnityEngine.Video;
 public class BoidV2 : MonoBehaviour
 {
     Rigidbody2D body;
-    public int rotationStrength;
+    public int torqueStrength;
     public int thrustStrength;
-    public float rotationStopTime;
-    
     public float OrientationAngle;
-    public float estimateAngleChange;
-    public bool TestTurnToAngle;
+    public bool test;
     public float AngularVelocity;
-    public float appliedForce;
-    public float vError;
-    public float fixedUpdateTime;
-    public float testVelocity;
-    private float totalForce;
     public float setAngle;
-    public UnityEngine.UI.Button testButton;
+    public GameObject target;
+    public LineController line;
+    public Vector2 targetVector;
+    public int vectorScaler;
+    public float angleError;
+    public float thrustError;
+    public float maxDistanceError;
+    public float flipTime;
+    public Vector2 esitmatedTransformation;
     // Start is called before the first frame update
     void Start()
     {
@@ -36,7 +37,6 @@ public class BoidV2 : MonoBehaviour
         body = GetComponent<Rigidbody2D>();
         // body.rotation = 90;
         // body.angularVelocity = 1f;
-        testButton.onClick.AddListener(test);
     }
 
     // Update is called once per frame
@@ -45,37 +45,50 @@ public class BoidV2 : MonoBehaviour
         OrientationAngle = Orientation() % 360;
         float h = Input.GetAxis("Horizontal");
         float v = Input.GetAxis("Vertical");
-        // body.velocity = ThrustUnitVector() * v * thrustStrength;
-        totalForce = -h * rotationStrength * Time.deltaTime;
-        // body.AddTorque(torque);
-        // rotationStopTime = calculateRotationalConvergenceTime();
+       
 
 
         screenWrap();
         
-        // body.angularDrag = Input.GetKey(KeyCode.Space) ? 1 : 0;
-            
+        // if(test){
+            line.setLine(body.position, target.transform.position);
+            targetVector = target.transform.position - body.transform.position;
+        // }
         
+        if(Input.GetMouseButtonDown(0)){
+            test = true;
+            target.SetActive(true);
+            line.setActive();
+            Vector2 setPoint = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
+            setPoint = Camera.main.ScreenToWorldPoint(setPoint);
+            target.transform.position = setPoint;
+        }
+        if(Input.GetMouseButtonDown(1)){
+            // test=false;
+            // target.SetActive(false);
+            // line.setActive(false);
+            
+            Vector2 setPoint = esitmatedTransformation + body.position;
+            setPoint = Camera.main.ScreenToWorldPoint(setPoint);
+            target.transform.position = setPoint;        
+        }
+
         if(Input.GetKey(KeyCode.LeftShift)){
             stopRotation();
         }
-        // TestTurnToAngle = Input.GetKey(KeyCode.Space) ? true : TestTurnToAngle;
 
         
     }
     void FixedUpdate()
     {
         AngularVelocity = body.angularVelocity;
-        fixedUpdateTime = Time.fixedDeltaTime;
-        if(TestTurnToAngle){
+        // if(test){
 
-            TurnToAngle(setAngle);
-        }
+            adjustToTargetVector();
+        // }
         // body.AddTorque(totalForce, ForceMode2D.Force);
     }
-    void test(){
-        TestTurnToAngle = true;
-    }
+
     float OrientationRadians()
     {
         return (body.rotation + 90) * Mathf.Deg2Rad;
@@ -85,25 +98,21 @@ public class BoidV2 : MonoBehaviour
         return (body.rotation + 90);
     }
 
-    void TurnToAngle(float angle){
-        angle = angle %360;
-        float bodyAngle = Orientation()%360;
-        float deltaAngle = angle - bodyAngle;
-        float stopTime = calculateRotationalConvergenceTime();
-        float estimatedDeltaAngle = calculateRotation(stopTime);
-        float estimatedAngle = estimatedDeltaAngle + Orientation();
-        estimateAngleChange = estimatedDeltaAngle;
+    void TurnToVector(Vector2 desiredVector){
 
+        float deltaAngle = -Vector2.SignedAngle(desiredVector, ThrustUnitVector());
+
+        float stopTime = estimatedAngularBreakTime();
+        float estimatedDeltaAngle = estimatedAngularBreakRotation(stopTime);
         int direction = Math.Sign(deltaAngle);
-        float velocityError = rotationStrength * Time.fixedDeltaTime;
-        vError = velocityError;
-        float  angleError = 5f;
+        float velocityError = torqueStrength * Time.fixedDeltaTime;
+        float appliedForce;
         if(Math.Abs(estimatedDeltaAngle) < Math.Abs(deltaAngle)-angleError){
-            appliedForce = direction * rotationStrength * Mathf.Deg2Rad;
+            appliedForce = direction * torqueStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
         else if(body.angularVelocity > velocityError || body.angularVelocity < -velocityError){
-            appliedForce = -direction * rotationStrength * Mathf.Deg2Rad;
+            appliedForce = -direction * torqueStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
         else{
@@ -146,10 +155,62 @@ public class BoidV2 : MonoBehaviour
         transform.position = newPosition;    
     }
 
-    float calculateRotationalConvergenceTime(){
-        return  Math.Abs(body.angularVelocity) / rotationStrength;
+    float estimatedAngularBreakTime(){
+        return  Math.Abs(body.angularVelocity) / torqueStrength;
     }
-    float calculateRotation(float time){
-        return time*((body.angularVelocity) + (.5f)*(rotationStrength)*(time));
+
+    float estimatedAngularBreakRotation(float time){
+        return time*((body.angularVelocity) + (.5f)*(torqueStrength)*(time));
+    }
+
+    // Assumes 0 starting angular velocity
+    float estimatedTurnTime(float delta){
+        float av = math.sqrt(2*torqueStrength*(math.abs(delta)/2));
+        return 2*(av/torqueStrength);
+    }
+    float estimatedLinearBreakTime(){
+        return Math.Abs(body.velocity.magnitude) / thrustStrength;
+    }
+    // Includes time to rotatate to thrusting vector
+    float estimatedLinearBreakTime(Vector2 vector){
+        float turnTime = estimatedTurnTime(-Vector2.SignedAngle(vector, ThrustUnitVector()));
+        return Math.Abs(body.velocity.magnitude) / thrustStrength;
+    }
+    Vector2 estimatedLinerBreakDistance(float time){
+        flipTime = estimatedTurnTime(180);
+        float scalar = body.velocity.magnitude*flipTime + time*(body.velocity.magnitude - (.5f)*(thrustStrength)*(time));
+        return body.velocity.normalized*scalar;
+    }
+
+    void adjustToTargetVector(){
+        // Debug.Log("Adjusting!");
+        Vector2 currentVector = body.velocity;
+        // Vector2 desiredThrust = (targetVector - currentVector).normalized;
+        Vector2 thrustVector = ThrustUnitVector()*thrustStrength;        
+
+        //calculate time to stop
+        float time = estimatedLinearBreakTime();
+        esitmatedTransformation = estimatedLinerBreakDistance(time);
+        float estimatedError = (targetVector - esitmatedTransformation).magnitude;
+        Vector2 desiredThrust = -(esitmatedTransformation - targetVector).normalized;
+        TurnToVector(desiredThrust);
+        Debug.DrawRay(body.position, body.velocity, Color.yellow);
+        Debug.DrawRay(body.position, esitmatedTransformation, Color.blue);
+        Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler, Color.green);
+
+
+        if(Vector2.Dot(desiredThrust, currentVector) <0){
+            Debug.Log("WTF");
+        }
+        // if(ifThrustError < currentError){
+        if(Vector2.Dot(desiredThrust, thrustVector.normalized) > thrustError && targetVector.magnitude > maxDistanceError){
+            // isThrust = true;
+            body.AddForce(thrustVector);
+            // if(drawThrust){
+                Debug.DrawRay(body.position, thrustVector*vectorScaler, Color.red);
+            // }
+
+        }
+
     }
 }
