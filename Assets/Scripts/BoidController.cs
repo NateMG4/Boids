@@ -14,7 +14,7 @@ public class BoidController : MonoBehaviour
     void Start()
     {  
         minVectorMag = 10;
-        boids = new ArrayList(GameObject.FindObjectsOfType<Boid>());
+        boids = new ArrayList(GameObject.FindObjectsOfType<BoidV2>());
         boidArray = GameObject.FindObjectsOfType<Boid>();
         orignialBoid = GameObject.FindObjectOfType<Boid>();
     }
@@ -54,10 +54,9 @@ public class BoidController : MonoBehaviour
                 }
                 averageTargetVector /= neighborsInRange;
                 if(averageTargetVector.magnitude < minVectorMag){
-                    averageTargetVector.x += (Mathf.Sign(averageTargetVector.x) *minVectorMag);
-                    averageTargetVector.y += (Mathf.Sign(averageTargetVector.y) *minVectorMag);
-
-               }
+                    float scalar = minVectorMag/ averageTargetVector.magnitude;
+                    averageTargetVector = averageTargetVector * scalar;
+                }
                 b.setTargetVector(averageTargetVector);
                 Debug.Log("AverageTargetVector " + averageTargetVector);
                 Debug.Log("Neighbors In Range " + neighborsInRange);

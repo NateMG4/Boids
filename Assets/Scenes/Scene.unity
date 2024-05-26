@@ -532,9 +532,10 @@ MonoBehaviour:
   vectorScaler: 1
   angleError: 1
   thrustError: 0.95
-  maxDistanceError: 0
+  maxDistanceError: 0.5
   flipTime: 1
   esitmatedTransformation: {x: 0, y: 0}
+  angularVelocityError: 5
 --- !u!212 &1879455360
 SpriteRenderer:
   m_ObjectHideFlags: 0

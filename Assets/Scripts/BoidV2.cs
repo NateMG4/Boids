@@ -28,6 +28,9 @@ public class BoidV2 : MonoBehaviour
     public float maxDistanceError;
     public float flipTime;
     public Vector2 esitmatedTransformation;
+    private Vector2 lastVector;
+    public float angularVelocityError;
+
     // Start is called before the first frame update
     void Start()
     {
@@ -97,7 +100,9 @@ public class BoidV2 : MonoBehaviour
     {
         return (body.rotation + 90);
     }
-
+    public Vector2 getPosition(){
+        return body.position;
+    }
     void TurnToVector(Vector2 desiredVector){
 
         float deltaAngle = -Vector2.SignedAngle(desiredVector, ThrustUnitVector());
@@ -105,13 +110,13 @@ public class BoidV2 : MonoBehaviour
         float stopTime = estimatedAngularBreakTime();
         float estimatedDeltaAngle = estimatedAngularBreakRotation(stopTime);
         int direction = Math.Sign(deltaAngle);
-        float velocityError = torqueStrength * Time.fixedDeltaTime;
+        angularVelocityError = torqueStrength * Time.fixedDeltaTime;
         float appliedForce;
         if(Math.Abs(estimatedDeltaAngle) < Math.Abs(deltaAngle)-angleError){
             appliedForce = direction * torqueStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
-        else if(body.angularVelocity > velocityError || body.angularVelocity < -velocityError){
+        else if(body.angularVelocity > angularVelocityError || body.angularVelocity < -angularVelocityError){
             appliedForce = -direction * torqueStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
@@ -124,7 +129,12 @@ public class BoidV2 : MonoBehaviour
     void stopRotation(){
         body.angularVelocity = 0;
     }
-
+    void stopRotationManual(){
+        if(body.angularVelocity > angularVelocityError || body.angularVelocity < -angularVelocityError){
+            float appliedForce = -Math.Sign(body.angularVelocity) * torqueStrength * Mathf.Deg2Rad;
+            body.AddTorque(appliedForce, ForceMode2D.Force);
+        }
+    }
     Vector2 ThrustUnitVector(float addAngle = 0)
     {
         // get real rotation
@@ -182,35 +192,46 @@ public class BoidV2 : MonoBehaviour
         return body.velocity.normalized*scalar;
     }
 
+
     void adjustToTargetVector(){
         // Debug.Log("Adjusting!");
         Vector2 currentVector = body.velocity;
         // Vector2 desiredThrust = (targetVector - currentVector).normalized;
         Vector2 thrustVector = ThrustUnitVector()*thrustStrength;        
-
+        Vector2 adjustedTargetVector = targetVector;
+        // - targetVector.normalized*maxDistanceError;
         //calculate time to stop
         float time = estimatedLinearBreakTime();
         esitmatedTransformation = estimatedLinerBreakDistance(time);
         float estimatedError = (targetVector - esitmatedTransformation).magnitude;
-        Vector2 desiredThrust = -(esitmatedTransformation - targetVector).normalized;
-        TurnToVector(desiredThrust);
+        Vector2 desiredThrust = -(esitmatedTransformation - adjustedTargetVector);
+        Vector2 desiredThrustDirection = desiredThrust.normalized;
+
         Debug.DrawRay(body.position, body.velocity, Color.yellow);
         Debug.DrawRay(body.position, esitmatedTransformation, Color.blue);
         Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler, Color.green);
 
-
-        if(Vector2.Dot(desiredThrust, currentVector) <0){
-            Debug.Log("WTF");
-        }
-        // if(ifThrustError < currentError){
-        if(Vector2.Dot(desiredThrust, thrustVector.normalized) > thrustError && targetVector.magnitude > maxDistanceError){
-            // isThrust = true;
-            body.AddForce(thrustVector);
-            // if(drawThrust){
+        if(targetVector.magnitude > maxDistanceError){
+            TurnToVector(desiredThrust);
+            lastVector = thrustVector;
+            if(Vector2.Dot(desiredThrustDirection, thrustVector.normalized) > thrustError){
+                body.AddForce(thrustVector);
                 Debug.DrawRay(body.position, thrustVector*vectorScaler, Color.red);
-            // }
 
+            }
         }
+        else if(targetVector.magnitude < maxDistanceError && body.velocity.magnitude > 0){
+            TurnToVector(-body.velocity);
+            desiredThrustDirection = -body.velocity.normalized;
+            if(Vector2.Dot(desiredThrustDirection, thrustVector.normalized) > thrustError){
+                thrustVector = math.min(thrustStrength, body.velocity.magnitude) * ThrustUnitVector();
+                body.AddForce(thrustVector);
+                Debug.DrawRay(body.position, thrustVector*vectorScaler, new Color(255, 127, 0, 1));
 
+            }
+        }
+        else{
+            stopRotationManual();
+        }
     }
 }
