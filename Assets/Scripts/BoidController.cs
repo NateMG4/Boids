@@ -14,7 +14,7 @@ public class BoidController : MonoBehaviour
     void Start()
     {  
         minVectorMag = 10;
-        boids = new ArrayList(GameObject.FindObjectsOfType<BoidV2>());
+        boids = new ArrayList(GameObject.FindObjectsOfType<Boid>());
         boidArray = GameObject.FindObjectsOfType<Boid>();
         orignialBoid = GameObject.FindObjectOfType<Boid>();
     }
@@ -39,12 +39,12 @@ public class BoidController : MonoBehaviour
         Vector2 averageTargetVector;
         int neighborsInRange;
         ArrayList flock;
-        foreach(Boid b in boids){
+        foreach(Boid_OLD b in boids){
             averageTargetVector = new Vector2(0, 0);
             neighborsInRange = 0;
             flock = new ArrayList();
             // if(b.controlMode == 0){
-                foreach(Boid bNeighbor in boids){
+                foreach(Boid_OLD bNeighbor in boids){
                     float dist = Mathf.Abs((b.getPosition() - bNeighbor.getPosition()).magnitude);
                     if(dist < b.viewRange){
                         averageTargetVector += bNeighbor.targetVector;

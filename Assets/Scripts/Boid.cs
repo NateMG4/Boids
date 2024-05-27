@@ -1,156 +1,159 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Xml.Schema;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
+using UnityEditor;
+using UnityEditor.Tilemaps;
 using UnityEngine;
+using UnityEngine.Timeline;
+using UnityEngine.UI;
+using UnityEngine.UIElements;
+using UnityEngine.Video;
+
 public class Boid : MonoBehaviour
 {
-
-    // might try turning on the show refrences code lense to see if some of these are pointless 
-
-    public float vectorScaler;
-    [SerializeField] float thrustStrength;
-    [SerializeField] float torqueStrength;
-    public float tolerance;
-    public float angularVelocity;
-    public float angleError;
-
-    public Vector2 currentVector;
-    public Vector2 targetVector;
-    public float targetVectorMag;
-    public bool auto;
-    public bool isThrust;
-    public float currentError;
-    public float ifThrustError;
-
-    public float rotation;
-    public float torque;
-
-    public GameObject allBoids;
     Rigidbody2D body;
-    public float viewRange;
-    public bool drawFlock;
-    public bool drawVel;
-    public bool drawThrust;
-    public bool drawTarg;
-    // mode 0: follows average neigbor vector
-    // mode 1: follows mouse
-    // mode 2: follows mouse dosnt affect neighbor vectors
-    public float minTargetVector;
-    public Vector2 setPoint;
-    public bool setPointMode;
-
-    public float kP;
-    public float kI;
-    public float kD;
-    public float resultantTorque;
-
-    public float convergenceTime = 0f;
+    public int torqueStrength;
+    public int thrustStrength;
+    public float OrientationAngle;
+    public bool test;
+    public float AngularVelocity;
+    public float setAngle;
+    public GameObject target;
+    public LineController line;
+    public Vector2 targetVector;
+    public int vectorScaler;
+    public float angleError;
+    public float thrustError;
+    public float maxDistanceError;
+    public float flipTime;
+    public Vector2 esitmatedTransformation;
+    private Vector2 lastVector;
+    public float angularVelocityError;
+    public BoidMode mode = BoidMode.Setpoint;
+    public bool DrawRays;
+    public bool DrawTarget;
+    public float maxAngularVelocity;
 
     // Start is called before the first frame update
     void Start()
     {
+        // rotationStrength = 20;
+        // thrustStrength = 5;
         gameObject.SetActive(true);
-        thrustStrength = (float) 15;
-        torqueStrength = (float) 10;
-        viewRange = 5f;
-        tolerance = 0.1f;
-        vectorScaler = 1;
-        auto = false;
-        drawFlock = true;
         body = GetComponent<Rigidbody2D>();
+        // body.rotation = 90;
+        // body.angularVelocity = 1f;
+        // body.angularVelocity = 1000;
+    }
 
-        drawVel = true;
-        drawThrust = false;
-        drawTarg = true;
+    // Update is called once per frame
+    void Update()
+    {
+        OrientationAngle = Orientation() % 360;
+        float h = Input.GetAxis("Horizontal");
+        float v = Input.GetAxis("Vertical");
+       
 
-        setPoint = new Vector2(0f, 0f);
-        // setPointMode = false;
-        // kP = 1;
-        // kI = .01f;
-        // kD = .25f;
-        // if(Random.Range(0, 100) < 10){
-        //     controlMode = 1;
+
+        screenWrap();
+        
+        if(DrawTarget){
+            target.SetActive(true);
+            target.transform.position = body.position + targetVector;
+            line.setLine(body.position, target.transform.position);
+        }
+
+        if(mode == BoidMode.Setpoint){
+            line.setLine(body.position, target.transform.position);
+            targetVector = target.transform.position - body.transform.position;
+        }
+        
+        if(mode == BoidMode.Setpoint && Input.GetMouseButtonDown(0)){
+            test = true;
+            target.SetActive(true);
+            line.setActive();
+            Vector2 setPoint = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
+            setPoint = Camera.main.ScreenToWorldPoint(setPoint);
+            target.transform.position = setPoint;
+        }
+
+
+        if(Input.GetKey(KeyCode.LeftShift)){
+            stopRotation();
+        }
+
+    }
+    void FixedUpdate()
+    {
+        AngularVelocity = body.angularVelocity;
+        // if(test){
+
+            adjustToTargetVector();
         // }
-        targetVector = new Vector2(Random.Range(-10, 10), Random.Range(-10, 10));
-        // body.velocity = new Vector2(Random.Range(-1, 1), Random.Range(-1, 1));
+        // body.AddTorque(totalForce, ForceMode2D.Force);
     }
-    public Vector2 getPosition(){
-        return body.position;
-    }
+
     float OrientationRadians()
     {
         return (body.rotation + 90) * Mathf.Deg2Rad;
     }
+    float Orientation()
+    {
+        return (body.rotation + 90);
+    }
+    public Vector2 getPosition(){
+        return body.position;
+    }
+    void TurnToVector(Vector2 desiredVector){
 
-    // The vector that we would add to velocity, if we thrust
+        float deltaAngle = -Vector2.SignedAngle(desiredVector, ThrustUnitVector());
+
+        float stopTime = estimatedAngularBreakTime();
+        float estimatedDeltaAngle = estimatedAngularBreakRotation(stopTime);
+        int direction = Math.Sign(deltaAngle);
+        angularVelocityError = torqueStrength * Time.fixedDeltaTime;
+        float appliedForce;
+        float deltaDeltaAngle = Mathf.DeltaAngle(deltaAngle, estimatedDeltaAngle);
+
+        if(math.sign(deltaAngle) != math.sign(estimatedDeltaAngle)){
+            Debug.Log(string.Format("deltaAngle: {0}\n estimatedDeltaAngle: {1}",deltaAngle, estimatedDeltaAngle));
+        }
+
+        if(math.abs(body.angularVelocity) > maxAngularVelocity){
+            stopRotationManual();
+        }
+    else if( math.sign(deltaDeltaAngle - direction*angleError) != direction){
+            appliedForce = direction * torqueStrength * Mathf.Deg2Rad;
+            body.AddTorque(appliedForce, ForceMode2D.Force);
+        }
+        else if(body.angularVelocity > angularVelocityError || body.angularVelocity < -angularVelocityError){
+            appliedForce = -direction * torqueStrength * Mathf.Deg2Rad;
+            body.AddTorque(appliedForce, ForceMode2D.Force);
+        }
+        else{
+            body.angularVelocity = 0;
+            // TestTurnToAngle = false;
+        }
+
+    }
+    
+    void stopRotation(){
+        body.angularVelocity = 0;
+    }
+    void stopRotationManual(){
+        if(body.angularVelocity > angularVelocityError || body.angularVelocity < -angularVelocityError){
+            float appliedForce = -Math.Sign(body.angularVelocity) * torqueStrength * Mathf.Deg2Rad;
+            body.AddTorque(appliedForce, ForceMode2D.Force);
+        }
+    }
     Vector2 ThrustUnitVector(float addAngle = 0)
     {
         // get real rotation
         float angle = OrientationRadians() + addAngle;
         return new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-    }
-    public void setTargetVector(Vector2 vector){
-        targetVector = vector;
-    }
-    // Update is called once per frame
-    void Update()
-    {
-
-        float h = Input.GetAxis("Horizontal");
-        float v = Input.GetAxis("Vertical");
-        angularVelocity = body.angularVelocity;
-        
-        if(setPointMode){
-            if(Input.GetMouseButtonDown(0)){
-                setPoint = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
-                setPoint = Camera.main.ScreenToWorldPoint(setPoint);
-                convergenceTime = 0;
-            }
-            setTargetVector(setPoint - body.position);
-        }
-        
-        screenWrap();
-
-        // if(targetVector.magnitude < minTargetVector){
-        //     targetVector.x += (Mathf.Sign(targetVector.x) *thrustStrength);
-        //     targetVector.y += (Mathf.Sign(targetVector.y) *thrustStrength);
-
-        // }
-        adjustToTargetVector();
-
-
-        // Vector2 thrust = v*thrustStrength*ThrustUnitVector();
-        // body.AddForce(thrust);
-        // Debug.DrawRay(body.position, thrust*vectorScaler, Color.red);
-
-        torque = -h*torqueStrength;
-        body.AddTorque(torque);
-
-        currentVector = body.velocity;
-        if(drawVel){
-            Debug.DrawRay(body.position, currentVector*vectorScaler, Color.yellow);
-        }
-        if(drawTarg){
-            if(!setPointMode){
-                Debug.DrawRay(body.position, targetVector*vectorScaler, Color.magenta);
-            }
-            else{
-                Debug.DrawRay(body.position, targetVector*vectorScaler, Color.cyan);
-            }
-        }
-        
-
-
-        // body.rotation += 90;
-        // body.AddForce
-        // body.rotation
-        
-    }
-    public void drawFlockRays(ArrayList flock){
-        if(drawFlock){
-            foreach(Boid b in flock){
-                Debug.DrawLine(body.position, b.getPosition());
-            }
-        }
     }
     void screenWrap(){
         var viewportPosition = Camera.main.WorldToViewportPoint(transform.position);
@@ -175,85 +178,100 @@ public class Boid : MonoBehaviour
         // body.velocity = velocity;
         transform.position = newPosition;    
     }
-    float calcError(Vector2 v, Vector2 target){
-        // float e = Mathf.Abs(Vector2.Dot(target,target)-Vector2.Dot(v, target));
-        float e = Mathf.Abs(Vector2.Angle(target, v));
-        return e;
+
+    float estimatedAngularBreakTime(){
+        return  Math.Abs(body.angularVelocity) / torqueStrength;
     }
 
-    public float DerivativeTimeScale = .5f;
-    public float derivativeTimer = 0f;
-
-    public float prevError = 0f;
-    // public float totalError = 0f;
-    public float derivative = 0f;
-    // public float intergral = 0f;
-    public float angleTolerance = .5f;
-
-    void turnToVector(Vector2 desiredVector){
-        Debug.Log("Turning!");
-        angleError = -Vector2.SignedAngle(desiredVector, ThrustUnitVector());
-        angularVelocity = body.angularVelocity;
-
-        if(Mathf.Abs(angleError) > angleTolerance){
-            // intergral += angleError * Time.deltaTime;
-            if(derivativeTimer > DerivativeTimeScale){
-                derivative = (angleError - prevError) / derivativeTimer;
-                derivativeTimer = 0;
-                prevError = angleError;
-            }
-            derivativeTimer += Time.deltaTime;
-
-            resultantTorque = (kP * angleError) + /*(kI * intergral) +*/ (kD * derivative);
-            convergenceTime += Time.deltaTime;
-            body.AddTorque(resultantTorque);
-        }
-
+    float estimatedAngularBreakRotation(float time){
+        return time*((body.angularVelocity) + (.5f)*(torqueStrength)*(time));
     }
-    public Vector2 desiredThrust;
+
+    // Assumes 0 starting angular velocity
+    float estimatedTurnTime(float delta){
+        float av = math.sqrt(2*torqueStrength*(math.abs(delta)/2));
+        return 2*(av/torqueStrength);
+    }
+    float estimatedLinearBreakTime(){
+        return Math.Abs(body.velocity.magnitude) / thrustStrength;
+    }
+    // Includes time to rotatate to thrusting vector
+    float estimatedLinearBreakTime(Vector2 vector){
+        float turnTime = estimatedTurnTime(-Vector2.SignedAngle(vector, ThrustUnitVector()));
+        return Math.Abs(body.velocity.magnitude) / thrustStrength;
+    }
+    Vector2 estimatedLinerBreakDistance(float time){
+        flipTime = estimatedTurnTime(180);
+        float scalar = body.velocity.magnitude*flipTime + time*(body.velocity.magnitude - (.5f)*(thrustStrength)*(time));
+        return body.velocity.normalized*scalar;
+    }
+
+
     void adjustToTargetVector(){
-        Debug.Log("Adjusting!");
-        currentVector = body.velocity;
-        desiredThrust = (targetVector - currentVector).normalized;
+        // Debug.Log("Adjusting!");
+        Vector2 currentVector = body.velocity;
+        // Vector2 desiredThrust = (targetVector - currentVector).normalized;
         Vector2 thrustVector = ThrustUnitVector()*thrustStrength;        
-        turnToVector(desiredThrust);
+        Vector2 adjustedTargetVector = targetVector;
+        // - targetVector.normalized*maxDistanceError;
+        //calculate time to stop
+        float time = estimatedLinearBreakTime();
+        esitmatedTransformation = estimatedLinerBreakDistance(time);
+        float estimatedError = (targetVector - esitmatedTransformation).magnitude;
+        Vector2 desiredThrust = -(esitmatedTransformation - adjustedTargetVector);
+        Vector2 desiredThrustDirection = desiredThrust.normalized;
 
-        Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler * 20, Color.green);
-        
-        // if(ifThrustError < currentError){
-        if(Vector2.Dot(desiredThrust, thrustVector.normalized) > .5f){
-            isThrust = true;
-            body.AddForce(thrustVector);
-            if(drawThrust){
-                Debug.DrawRay(body.position, thrustVector*vectorScaler, Color.red);
-            }
-
+        if(DrawRays){
+        Debug.DrawRay(body.position, body.velocity, Color.yellow);
+        Debug.DrawRay(body.position, esitmatedTransformation, Color.blue);
+        Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler, Color.green);
         }
-
-
-        // Vector2 R = ThrustUnitVector(angularVelocity*Time.deltaTime);//*thrustStrength;
-        // Vector2 LeftR = ThrustUnitVector((angularVelocity+torqueStrength*Time.deltaTime)*Time.deltaTime);//*thrustStrength;
-        // Vector2 RightR = ThrustUnitVector((angularVelocity-torqueStrength*Time.deltaTime)*Time.deltaTime);//*thrustStrength;
-
-        // float dotR = Vector2.Dot(desiredThrust, R);
-        // float dotLeftR = Vector2.Dot(desiredThrust, LeftR);
-        // float dotRightR = Vector2.Dot(desiredThrust, RightR);
-
-        // if(dotLeftR > dotR && dotLeftR > dotRightR){
-        //     body.AddTorque(torqueStrength);
-        // }
-        // else if(dotRightR > dotR){
-        //     body.AddTorque(-torqueStrength);
-        // }
-
-
-    }
-    void adjustToTargetVector2(){
-        currentVector = body.velocity;
-        float xError = targetVector.x - currentVector.x;
-        float yError = targetVector.y - currentVector.y;
         
+
+        if(targetVector.magnitude > maxDistanceError){
+            TurnToVector(desiredThrust);
+            lastVector = thrustVector;
+            if(Vector2.Dot(desiredThrustDirection, thrustVector.normalized) > thrustError){
+                body.AddForce(thrustVector);
+                if(DrawRays){
+                    Debug.DrawRay(body.position, thrustVector*vectorScaler, Color.red);
+                }
+            }
+        }
+        else if(targetVector.magnitude < maxDistanceError && body.velocity.magnitude > 0){
+            TurnToVector(-body.velocity);
+            desiredThrustDirection = -body.velocity.normalized;
+            if(Vector2.Dot(desiredThrustDirection, thrustVector.normalized) > thrustError){
+                thrustVector = math.min(thrustStrength, body.velocity.magnitude) * ThrustUnitVector();
+                body.AddForce(thrustVector);
+                if(DrawRays){
+                    Debug.DrawRay(body.position, thrustVector*vectorScaler, new Color(255, 127, 0, 1));
+                }
+            }
+        }
+        else{
+            stopRotationManual();
+        }
     }
-    
+    // Converts angle to bounds -180 to 180
+    float boundAngle(float angle){
+        angle = angle % 360;
+        angle = (angle + 360) % 360;
+        return angle > 180 ? angle -= 360 : angle;
+    }
+
+    public void setMode(BoidMode m){
+        mode = m;
+    }
+    public void setTargetVector(Vector2 newTarget){
+        targetVector = newTarget;
+    }
+    public void drawRay(Vector2 direction, Color c){
+        Debug.DrawRay(body.position, direction, c);
+    }
 
 }
+public enum BoidMode{
+        Setpoint,
+        Flock
+    }
