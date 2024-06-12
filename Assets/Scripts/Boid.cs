@@ -1,8 +1,3 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Xml.Schema;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEditor;
 using UnityEditor.Tilemaps;
@@ -11,18 +6,27 @@ using UnityEngine.Timeline;
 using UnityEngine.UI;
 using UnityEngine.UIElements;
 using UnityEngine.Video;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Xml.Schema;
+using Unity.Collections.LowLevel.Unsafe;
+using Object = UnityEngine.Object;
+
 
 public class Boid : MonoBehaviour
 {
     Rigidbody2D body;
-    public int torqueStrength;
-    public int thrustStrength;
+    public float torqueStrength;
+    public float thrustStrength;
     public float OrientationAngle;
     public bool test;
     public float AngularVelocity;
     public float setAngle;
     public GameObject target;
+    public GameObject targetBase;
     public LineController line;
+    public GameObject lineBase;
     public Vector2 targetVector;
     public int vectorScaler;
     public float angleError;
@@ -36,18 +40,22 @@ public class Boid : MonoBehaviour
     public bool DrawRays;
     public bool DrawTarget;
     public float maxAngularVelocity;
+    public BoidDrive drive;
+    
+
 
     // Start is called before the first frame update
     void Start()
     {
-        // rotationStrength = 20;
-        // thrustStrength = 5;
+        // thrustStrength = 1 + UnityEngine.Random.value * 20;
         gameObject.SetActive(true);
         body = GetComponent<Rigidbody2D>();
-        // body.rotation = 90;
-        // body.angularVelocity = 1f;
-        // body.angularVelocity = 1000;
-    }
+        target = Object.Instantiate(targetBase);
+        GameObject personalLine = Object.Instantiate(lineBase);
+        line = personalLine.GetComponent<LineController>();
+
+
+    }   
 
     // Update is called once per frame
     void Update()
@@ -66,7 +74,7 @@ public class Boid : MonoBehaviour
             line.setLine(body.position, target.transform.position);
         }
 
-        if(mode == BoidMode.Setpoint){
+        if(mode == BoidMode.Setpoint){ 
             line.setLine(body.position, target.transform.position);
             targetVector = target.transform.position - body.transform.position;
         }
@@ -125,7 +133,7 @@ public class Boid : MonoBehaviour
         if(math.abs(body.angularVelocity) > maxAngularVelocity){
             stopRotationManual();
         }
-    else if( math.sign(deltaDeltaAngle - direction*angleError) != direction){
+        else if( math.sign(deltaDeltaAngle - direction*angleError) != direction){
             appliedForce = direction * torqueStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
