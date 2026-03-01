@@ -122,60 +122,6 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &239218469
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 239218471}
-  - component: {fileID: 239218470}
-  m_Layer: 0
-  m_Name: Flock
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &239218470
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 239218469}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a6099cf4ef82ab746b3d5acf9b7c8429, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  boids: []
-  averageFlockPosition: {x: 0, y: 0}
-  averageTrajectory: {x: 0, y: 0}
-  seperation: 1
-  alignment: 1
-  cohesion: 1
-  target: {fileID: 439427416}
-  targetVector: {x: 0, y: 0}
-  alignmentMagnitude: 0
-  drawRays: 0
---- !u!4 &239218471
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 239218469}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.21193172, y: -0.58201367, z: -9.931686}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &439427416
 GameObject:
   m_ObjectHideFlags: 0
@@ -470,7 +416,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 22.56
+  orthographic size: 10
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -589,14 +535,15 @@ MonoBehaviour:
   angleError: 1
   thrustError: 0.95
   maxDistanceError: 0.5
+  velocityError: 0
   flipTime: 1
   esitmatedTransformation: {x: 0, y: 0}
   angularVelocityError: 5
   mode: 0
-  DrawRays: 0
+  DrawRays: 1
   DrawTarget: 0
   maxAngularVelocity: 400
-  drive: {fileID: 0}
+  setVelocity: 1
 --- !u!212 &1879455360
 SpriteRenderer:
   m_ObjectHideFlags: 0
@@ -741,5 +688,4 @@ SceneRoots:
   - {fileID: 439427418}
   - {fileID: 1931919317}
   - {fileID: 498852156}
-  - {fileID: 239218471}
   - {fileID: 1879455358}

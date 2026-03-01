@@ -72,3 +72,10 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 Assets/TextMesh Pro/
 .fake
+
+# Local IDE / OS artifacts
+/.idea/
+*.DotSettings.user
+Thumbs.db
+.DS_Store
+UpgradeLog*.htm

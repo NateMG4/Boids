@@ -76,12 +76,14 @@ public class Flock : MonoBehaviour
         boids.Add(b);
     }
     void getAverageFlockPosition(){
+        averageFlockPosition = Vector2.zero;
         foreach(Boid b in boids){
             averageFlockPosition += b.getPosition();
         }
         averageFlockPosition /= numBoids;
     }
     void getAverageFlockTrajectory(){
+        averageTrajectory = Vector2.zero;
         foreach(Boid b in boids){
             averageTrajectory += b.targetVector;
         }

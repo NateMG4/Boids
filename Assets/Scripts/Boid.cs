@@ -1,17 +1,5 @@
 using Unity.Mathematics;
-using UnityEditor;
-using UnityEditor.Tilemaps;
 using UnityEngine;
-using UnityEngine.Timeline;
-using UnityEngine.UI;
-using UnityEngine.UIElements;
-using UnityEngine.Video;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Xml.Schema;
-using Unity.Collections.LowLevel.Unsafe;
-using Object = UnityEngine.Object;
 
 
 public class Boid : MonoBehaviour
@@ -32,6 +20,7 @@ public class Boid : MonoBehaviour
     public float angleError;
     public float thrustError;
     public float maxDistanceError;
+    public float velocityError;
     public float flipTime;
     public Vector2 esitmatedTransformation;
     private Vector2 lastVector;
@@ -40,7 +29,7 @@ public class Boid : MonoBehaviour
     public bool DrawRays;
     public bool DrawTarget;
     public float maxAngularVelocity;
-    public BoidDrive drive;
+    public float setVelocity;
     
 
 
@@ -87,6 +76,11 @@ public class Boid : MonoBehaviour
             setPoint = Camera.main.ScreenToWorldPoint(setPoint);
             target.transform.position = setPoint;
         }
+        if(mode == BoidMode.Velocity){
+            Vector2 setPoint = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
+            setPoint = Camera.main.ScreenToWorldPoint(setPoint);
+            targetVector = setPoint - body.position;
+        }
 
 
         if(Input.GetKey(KeyCode.LeftShift)){
@@ -97,11 +91,11 @@ public class Boid : MonoBehaviour
     void FixedUpdate()
     {
         AngularVelocity = body.angularVelocity;
-        // if(test){
-
-            adjustToTargetVector();
-        // }
-        // body.AddTorque(totalForce, ForceMode2D.Force);
+        
+        if(mode == BoidMode.Setpoint || mode == BoidMode.Flock)
+            moveToSetPoint();
+        else if(mode == BoidMode.Velocity)
+            adjustToTargetVector(setVelocity);
     }
 
     float OrientationRadians()
@@ -121,7 +115,7 @@ public class Boid : MonoBehaviour
 
         float stopTime = estimatedAngularBreakTime();
         float estimatedDeltaAngle = estimatedAngularBreakRotation(stopTime);
-        int direction = Math.Sign(deltaAngle);
+        int direction = (int)math.sign(deltaAngle);
         angularVelocityError = torqueStrength * Time.fixedDeltaTime;
         float appliedForce;
         float deltaDeltaAngle = Mathf.DeltaAngle(deltaAngle, estimatedDeltaAngle);
@@ -153,7 +147,7 @@ public class Boid : MonoBehaviour
     }
     void stopRotationManual(){
         if(body.angularVelocity > angularVelocityError || body.angularVelocity < -angularVelocityError){
-            float appliedForce = -Math.Sign(body.angularVelocity) * torqueStrength * Mathf.Deg2Rad;
+            float appliedForce = -math.sign(body.angularVelocity) * torqueStrength * Mathf.Deg2Rad;
             body.AddTorque(appliedForce, ForceMode2D.Force);
         }
     }
@@ -188,7 +182,7 @@ public class Boid : MonoBehaviour
     }
 
     float estimatedAngularBreakTime(){
-        return  Math.Abs(body.angularVelocity) / torqueStrength;
+        return  math.abs(body.angularVelocity) / torqueStrength;
     }
 
     float estimatedAngularBreakRotation(float time){
@@ -201,12 +195,12 @@ public class Boid : MonoBehaviour
         return 2*(av/torqueStrength);
     }
     float estimatedLinearBreakTime(){
-        return Math.Abs(body.velocity.magnitude) / thrustStrength;
+        return math.abs(body.velocity.magnitude) / thrustStrength;
     }
     // Includes time to rotatate to thrusting vector
     float estimatedLinearBreakTime(Vector2 vector){
         float turnTime = estimatedTurnTime(-Vector2.SignedAngle(vector, ThrustUnitVector()));
-        return Math.Abs(body.velocity.magnitude) / thrustStrength;
+        return math.abs(body.velocity.magnitude) / thrustStrength;
     }
     Vector2 estimatedLinerBreakDistance(float time){
         flipTime = estimatedTurnTime(180);
@@ -215,7 +209,29 @@ public class Boid : MonoBehaviour
     }
 
 
-    void adjustToTargetVector(){
+    void adjustToTargetVector(float vectorMag){
+        Vector2 currentVector = body.velocity;
+        Vector2 thrustVector = ThrustUnitVector()*thrustStrength;   
+        Vector2 scaledTargetVector = targetVector.normalized * vectorMag;
+        Vector2 desiredVector = scaledTargetVector - currentVector;
+
+        if(DrawRays){
+            Debug.DrawRay(body.position, body.velocity, Color.yellow);
+            Debug.DrawRay(body.position, desiredVector, Color.green);
+            Debug.DrawRay(body.position, scaledTargetVector, Color.blue);
+        }
+        if(desiredVector.magnitude > velocityError){
+            TurnToVector(desiredVector);
+            if(Vector2.Dot(desiredVector.normalized, thrustVector.normalized) > thrustError){
+                    body.AddForce(thrustVector);
+                    if(DrawRays){
+                        Debug.DrawRay(body.position, thrustVector*vectorScaler, Color.red);
+                    }
+            }
+        }
+    }
+
+    void moveToSetPoint(){
         // Debug.Log("Adjusting!");
         Vector2 currentVector = body.velocity;
         // Vector2 desiredThrust = (targetVector - currentVector).normalized;
@@ -230,9 +246,9 @@ public class Boid : MonoBehaviour
         Vector2 desiredThrustDirection = desiredThrust.normalized;
 
         if(DrawRays){
-        Debug.DrawRay(body.position, body.velocity, Color.yellow);
-        Debug.DrawRay(body.position, esitmatedTransformation, Color.blue);
-        Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler, Color.green);
+            Debug.DrawRay(body.position, body.velocity, Color.yellow);
+            Debug.DrawRay(body.position, esitmatedTransformation, Color.blue);
+            Debug.DrawRay(body.position + targetVector, desiredThrust * vectorScaler, Color.green);
         }
         
 
@@ -276,10 +292,13 @@ public class Boid : MonoBehaviour
     }
     public void drawRay(Vector2 direction, Color c){
         Debug.DrawRay(body.position, direction, c);
+        
     }
 
 }
 public enum BoidMode{
         Setpoint,
+        Velocity,
         Flock
+
     }
