@@ -10,13 +10,19 @@ namespace MovementV2.Demo
         [SerializeField] private float stopRadius = 0.5f;
         [SerializeField] private bool drawTarget = true;
 
+        [Header("Orbit Correction")]
+        [SerializeField] private bool correctLateralVelocity = false;
+        [SerializeField] [Min(0f)] private float lateralCorrectionGain = 1f;
+
         private MotionControllerRunner runner;
+        private Rigidbody2D rb;
         private Camera cam;
         private Vector2? targetWorld;
 
         private void Awake()
         {
             runner = GetComponent<MotionControllerRunner>();
+            rb = GetComponent<Rigidbody2D>();
             cam = Camera.main;
         }
 
@@ -54,7 +60,22 @@ namespace MovementV2.Demo
             }
             else
             {
-                Vector2 desiredVelocity = delta.normalized * desiredSpeed;
+                Vector2 rHat = delta / dist;
+                Vector2 desiredVelocity = rHat * desiredSpeed;
+
+                if (correctLateralVelocity && rb != null)
+                {
+                    Vector2 v = rb.velocity;
+                    Vector2 vRad = Vector2.Dot(v, rHat) * rHat;
+                    Vector2 vTan = v - vRad;
+
+                    Vector2 steer = (rHat * desiredSpeed) - (vTan * lateralCorrectionGain);
+                    if (steer.sqrMagnitude > 1e-6f)
+                    {
+                        desiredVelocity = steer.normalized * desiredSpeed;
+                    }
+                }
+
                 runner.Desired = new DesiredMotion(desiredVelocity, 0f);
             }
 
