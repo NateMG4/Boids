@@ -31,14 +31,17 @@ namespace MovementV2.Demo
             }
 
             controller = new CascadedPidMotionController(config);
+            ApplyCurrentConfig();
         }
 
         private void OnValidate()
         {
-            if (!useDefaultConfig && controller != null)
+            if (useDefaultConfig && !Application.isPlaying)
             {
-                controller.Config = config;
+                config = CascadedControlConfig.Default();
             }
+
+            ApplyCurrentConfig();
         }
 
         private void FixedUpdate()
@@ -71,12 +74,22 @@ namespace MovementV2.Demo
         public void SetConfig(CascadedControlConfig newConfig)
         {
             config = newConfig;
-            controller.Config = newConfig;
+            ApplyCurrentConfig();
         }
 
         public void ResetController()
         {
             controller.Reset();
+        }
+
+        private void ApplyCurrentConfig()
+        {
+            if (controller == null)
+            {
+                return;
+            }
+
+            controller.Config = config;
         }
     }
 }
