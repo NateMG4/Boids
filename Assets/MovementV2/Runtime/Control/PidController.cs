@@ -25,7 +25,7 @@ namespace MovementV2.Control
         public static PidGains DefaultYawRate()
         {
             return new PidGains {
-                kp = 5f,
+                kp = 20f,
                 ki = 0f,
                 kd = 0.05f,
                 iClamp = 2f,
