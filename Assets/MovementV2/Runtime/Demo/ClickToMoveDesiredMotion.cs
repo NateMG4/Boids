@@ -28,17 +28,15 @@ namespace MovementV2.Demo
         [SerializeField] [Min(0f)] private float brakeDistancePadding = 0.25f;
         [SerializeField] [Min(0f)] private float brakeCommandSpeed = 0.2f;
         [SerializeField] [Min(1f)] private float turnTimeLeadFactor = 1.15f;
-        [SerializeField] [Min(0f)] private float brakeExitSpeedMargin = 0.35f;
-        [SerializeField] [Min(1f)] private float brakeExitDistanceFactor = 1.2f;
 
         [Header("Steering")]
         [SerializeField] [Min(0f)] private float lateralCorrectionGain = 1f;
+        [SerializeField] [Min(0f)] private float longitudinalCorrectionGain = 1f;
 
         private MotionControllerRunner runner;
         private Rigidbody2D rb;
         private Camera cam;
         private Vector2? targetWorld;
-        private bool isBrakingForArrival;
         [SerializeField] private ArrivalState currentArrivalState = ArrivalState.Idle;
 
         public string CurrentArrivalStateName => currentArrivalState.ToString();
@@ -66,13 +64,11 @@ namespace MovementV2.Demo
                 Vector3 mouse = Input.mousePosition;
                 Vector3 world = cam.ScreenToWorldPoint(mouse);
                 targetWorld = new Vector2(world.x, world.y);
-                isBrakingForArrival = false;
             }
 
             if (!targetWorld.HasValue)
             {
                 runner.Desired = DesiredMotion.Stop;
-                isBrakingForArrival = false;
                 currentArrivalState = ArrivalState.Idle;
                 return;
             }
@@ -98,7 +94,6 @@ namespace MovementV2.Demo
         {
             if (distToTarget <= stopRadius && (rb == null || rb.velocity.magnitude <= stopSpeed))
             {
-                isBrakingForArrival = false;
                 currentArrivalState = ArrivalState.Stop;
                 return DesiredMotion.Stop;
             }
@@ -107,9 +102,12 @@ namespace MovementV2.Demo
             Vector2 desiredVelocity = rb == null
                 ? (rHat * desiredSpeed)
                 : ComputeDesiredVelocity(distToTarget, rHat);
+            Vector2 desiredThrustDirection = rb == null
+                ? desiredVelocity
+                : ComputeDesiredThrustDirection(desiredVelocity, rb.velocity, rHat);
 
             return desiredVelocity.sqrMagnitude > DirectionEpsilon
-                ? new DesiredMotion(desiredVelocity, 0f)
+                ? new DesiredMotion(desiredVelocity, 0f, desiredThrustDirection)
                 : DesiredMotion.Stop;
         }
 
@@ -117,41 +115,26 @@ namespace MovementV2.Demo
         {
             Vector2 currentVelocity = rb.velocity;
             CascadedControlConfig config = runner.GetConfig();
-            float minCommandSpeed = Mathf.Max(brakeCommandSpeed, config.desiredSpeedEpsilon + 0.01f);
             float approachSpeed = ComputeApproachSpeed(distToTarget, config);
-            Vector2 targetVelocity = rHat * approachSpeed;
-
-            if (distToTarget <= stopRadius)
-            {
-                isBrakingForArrival = true;
-                currentArrivalState = ArrivalState.Brake;
-                return BuildVelocityCommand(-currentVelocity, currentVelocity.magnitude, minCommandSpeed, Vector2.zero);
-            }
-
             float radialSpeed = Vector2.Dot(currentVelocity, rHat);
             Vector2 lateralVelocity = currentVelocity - (radialSpeed * rHat);
-            float brakeStartDistance = ComputeBrakeStartDistance(rHat, currentVelocity, targetVelocity, config);
-            bool shouldBrake = UpdateBrakeState(
+            float brakeStartDistance = ComputeBrakeStartDistance(rHat, currentVelocity, config);
+            float correctionBlend = ComputeCorrectionBlend(
                 distToTarget,
                 brakeStartDistance,
-                currentVelocity,
-                targetVelocity,
+                radialSpeed,
                 approachSpeed,
-                lateralVelocity,
                 config);
 
-            Vector2 headingVector = shouldBrake
-                ? (targetVelocity - currentVelocity)
-                : (targetVelocity - (lateralVelocity * lateralCorrectionGain));
+            Vector2 cruiseVelocity = rHat * approachSpeed;
+            Vector2 radialVelocity = rHat * radialSpeed;
+            Vector2 desiredVelocity = cruiseVelocity
+                - (lateralVelocity * lateralCorrectionGain)
+                - (radialVelocity * (longitudinalCorrectionGain * correctionBlend));
 
-            float commandSpeed = shouldBrake
-                ? Mathf.Max(headingVector.magnitude, minCommandSpeed)
-                : approachSpeed;
+            currentArrivalState = correctionBlend > 0.01f ? ArrivalState.Brake : ArrivalState.Cruise;
 
-            currentArrivalState = shouldBrake ? ArrivalState.Brake : ArrivalState.Cruise;
-
-            float speedFloor = shouldBrake ? minCommandSpeed : 0f;
-            return BuildVelocityCommand(headingVector, commandSpeed, speedFloor, rHat);
+            return ClampDesiredVelocity(desiredVelocity, config, currentVelocity.magnitude);
         }
 
         private float ComputeApproachSpeed(float distToTarget, CascadedControlConfig config)
@@ -176,7 +159,6 @@ namespace MovementV2.Demo
         private float ComputeBrakeStartDistance(
             Vector2 rHat,
             Vector2 currentVelocity,
-            Vector2 targetVelocity,
             CascadedControlConfig config)
         {
             float baseDistance = stopRadius + brakeDistancePadding;
@@ -194,14 +176,13 @@ namespace MovementV2.Demo
                 return baseDistance;
             }
 
-            Vector2 velocityError = currentVelocity - targetVelocity;
-            float brakeSpeed = velocityError.magnitude;
+            float brakeSpeed = currentVelocity.magnitude;
             float brakeDistance = (brakeSpeed * brakeSpeed) / (2f * maxAccel);
 
             float closingSpeed = Mathf.Max(0f, Vector2.Dot(currentVelocity, rHat));
             float closingDistance = (closingSpeed * closingSpeed) / (2f * maxAccel);
 
-            Vector2 brakeHeading = (targetVelocity - currentVelocity);
+            Vector2 brakeHeading = GetBrakeDirection(currentVelocity, rHat);
             float turnDistance = 0f;
             if (brakeHeading.sqrMagnitude > DirectionEpsilon)
             {
@@ -218,64 +199,82 @@ namespace MovementV2.Demo
             return baseDistance + Mathf.Max(brakeDistance, closingDistance) + turnDistance;
         }
 
-        private bool UpdateBrakeState(
+        private float ComputeCorrectionBlend(
             float distToTarget,
             float brakeStartDistance,
-            Vector2 currentVelocity,
-            Vector2 targetVelocity,
+            float radialSpeed,
             float approachSpeed,
-            Vector2 lateralVelocity,
             CascadedControlConfig config)
         {
-            if (!isBrakingForArrival)
+            float distanceBlend = 0f;
+            float blendRange = brakeStartDistance - stopRadius;
+            if (blendRange > DirectionEpsilon)
             {
-                isBrakingForArrival = distToTarget <= brakeStartDistance;
-                return isBrakingForArrival;
+                distanceBlend = Mathf.Clamp01((brakeStartDistance - distToTarget) / blendRange);
+            }
+            else if (distToTarget <= brakeStartDistance)
+            {
+                distanceBlend = 1f;
             }
 
-            float radialError = Mathf.Abs(currentVelocity.magnitude - approachSpeed);
-            float lateralSpeed = lateralVelocity.magnitude;
-            float velocityError = (targetVelocity - currentVelocity).magnitude;
-            float exitDistance = brakeStartDistance * Mathf.Max(1f, brakeExitDistanceFactor);
-            float exitSpeedThreshold = Mathf.Max(config.desiredSpeedEpsilon, brakeExitSpeedMargin);
+            float closingOverspeed = Mathf.Max(0f, radialSpeed - approachSpeed);
+            float overspeedDenominator = Mathf.Max(desiredSpeed, config.desiredSpeedEpsilon);
+            float overspeedBlend = overspeedDenominator > DirectionEpsilon
+                ? Mathf.Clamp01(closingOverspeed / overspeedDenominator)
+                : 0f;
 
-            bool canExitBrake = distToTarget > exitDistance
-                && radialError <= exitSpeedThreshold
-                && lateralSpeed <= exitSpeedThreshold
-                && velocityError <= exitSpeedThreshold;
-
-            if (canExitBrake)
-            {
-                isBrakingForArrival = false;
-            }
-
-            return isBrakingForArrival;
+            return Mathf.Max(distanceBlend, overspeedBlend);
         }
 
-        private Vector2 BuildVelocityCommand(
-            Vector2 headingVector,
-            float commandSpeed,
-            float minCommandSpeed,
-            Vector2 fallbackDirection)
+        private Vector2 ClampDesiredVelocity(
+            Vector2 desiredVelocity,
+            CascadedControlConfig config,
+            float currentSpeed)
         {
-            Vector2 direction = headingVector;
-            if (direction.sqrMagnitude <= DirectionEpsilon)
-            {
-                direction = fallbackDirection;
-            }
-
-            if (direction.sqrMagnitude <= DirectionEpsilon || commandSpeed <= DirectionEpsilon)
+            float maxCommandSpeed = Mathf.Max(0f, desiredSpeed);
+            if (desiredVelocity.sqrMagnitude <= DirectionEpsilon || maxCommandSpeed <= DirectionEpsilon)
             {
                 return Vector2.zero;
             }
 
-            float clampedSpeed = Mathf.Clamp(commandSpeed, 0f, desiredSpeed);
-            if (clampedSpeed > DirectionEpsilon && clampedSpeed < minCommandSpeed)
+            float commandSpeed = desiredVelocity.magnitude;
+            float clampedSpeed = Mathf.Min(commandSpeed, maxCommandSpeed);
+            float minCommandSpeed = Mathf.Max(brakeCommandSpeed, config.desiredSpeedEpsilon + 0.01f);
+            if (currentSpeed > stopSpeed && clampedSpeed < minCommandSpeed)
             {
-                clampedSpeed = minCommandSpeed;
+                clampedSpeed = Mathf.Min(maxCommandSpeed, minCommandSpeed);
             }
 
-            return direction.normalized * clampedSpeed;
+            return desiredVelocity * (clampedSpeed / commandSpeed);
+        }
+
+        private Vector2 ComputeDesiredThrustDirection(
+            Vector2 desiredVelocity,
+            Vector2 currentVelocity,
+            Vector2 fallbackDirection)
+        {
+            Vector2 velocityCorrection = desiredVelocity - currentVelocity;
+            if (velocityCorrection.sqrMagnitude > DirectionEpsilon)
+            {
+                return velocityCorrection;
+            }
+
+            if (desiredVelocity.sqrMagnitude > DirectionEpsilon)
+            {
+                return desiredVelocity;
+            }
+
+            return fallbackDirection;
+        }
+
+        private Vector2 GetBrakeDirection(Vector2 currentVelocity, Vector2 fallbackDirection)
+        {
+            if (currentVelocity.sqrMagnitude > DirectionEpsilon)
+            {
+                return -currentVelocity.normalized;
+            }
+
+            return fallbackDirection;
         }
 
         private void DrawStateIndicator(Vector2 currentPosition)

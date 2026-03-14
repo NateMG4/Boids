@@ -63,11 +63,20 @@ namespace MovementV2.Core
     {
         public Vector2 desiredVelocityWorld;
         public float desiredYawRate;
+        public Vector2 desiredThrustDirectionWorld;
 
         public DesiredMotion(Vector2 velocityWorld, float yawRate)
         {
             desiredVelocityWorld = velocityWorld;
             desiredYawRate = yawRate;
+            desiredThrustDirectionWorld = Vector2.zero;
+        }
+
+        public DesiredMotion(Vector2 velocityWorld, float yawRate, Vector2 thrustDirectionWorld)
+        {
+            desiredVelocityWorld = velocityWorld;
+            desiredYawRate = yawRate;
+            desiredThrustDirectionWorld = thrustDirectionWorld;
         }
 
         public static DesiredMotion Stop => new DesiredMotion(Vector2.zero, 0f);

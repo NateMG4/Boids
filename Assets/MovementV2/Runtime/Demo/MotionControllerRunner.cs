@@ -63,6 +63,7 @@ namespace MovementV2.Demo
                 Vector2 pos = state.pose.p_w;
                 Debug.DrawRay(pos, state.twist.v_w * debugRayScale, Color.yellow);
                 Debug.DrawRay(pos, Desired.desiredVelocityWorld * debugRayScale, Color.cyan);
+                Debug.DrawRay(pos, Desired.desiredThrustDirectionWorld.normalized * debugRayScale, Color.red);
             }
         }
 
