@@ -8,12 +8,14 @@ namespace MovementV2.Demo
     public class ClickToMoveDesiredMotion : MonoBehaviour
     {
         private const float DirectionEpsilon = 1e-6f;
+        private static readonly Color CorrectStateColor = new Color(1f, 0.5f, 0f);
 
         private enum ArrivalState
         {
             Idle,
             Cruise,
-            Brake,
+            Correct,
+            Flip,
             Stop
         }
 
@@ -28,15 +30,30 @@ namespace MovementV2.Demo
         [SerializeField] [Min(0f)] private float brakeDistancePadding = 0.25f;
         [SerializeField] [Min(0f)] private float brakeCommandSpeed = 0.2f;
         [SerializeField] [Min(1f)] private float turnTimeLeadFactor = 1.15f;
+        [SerializeField] [Range(0f, 1f)] private float flipBiasProgress = 0.5f;
+        [SerializeField] [Min(0f)] private float flipBiasWidth = 0.2f;
+        [SerializeField] [Min(0f)] private float flipBiasStrength = 1f;
 
         [Header("Steering")]
         [SerializeField] [Min(0f)] private float lateralCorrectionGain = 1f;
         [SerializeField] [Min(0f)] private float longitudinalCorrectionGain = 1f;
+        [SerializeField] [Min(0f)] private float thrustDirectionSmoothing = 10f;
+        [SerializeField] [Min(1f)] private float maxLateralCorrectionMultiplier = 2f;
+        [SerializeField] [Min(0f)] private float lateralCorrectionDistancePadding = 0.25f;
+
+        [Header("Stability")]
+        [SerializeField] [Min(0f)] private float innerStabilityRadius = 0.9f;
+        [SerializeField] [Min(0f)] private float innerVelocityFadeStrength = 1f;
+        [SerializeField] private bool innerDisableMinCommand = true;
 
         private MotionControllerRunner runner;
         private Rigidbody2D rb;
         private Camera cam;
         private Vector2? targetWorld;
+        private float initialTargetDistance;
+        private bool hasInitialTargetDistance;
+        private Vector2 lastStableTargetDirection;
+        private Vector2 smoothedThrustDirection;
         [SerializeField] private ArrivalState currentArrivalState = ArrivalState.Idle;
 
         public string CurrentArrivalStateName => currentArrivalState.ToString();
@@ -46,6 +63,15 @@ namespace MovementV2.Demo
             runner = GetComponent<MotionControllerRunner>();
             rb = GetComponent<Rigidbody2D>();
             cam = Camera.main;
+            lastStableTargetDirection = transform.up;
+        }
+
+        private void OnValidate()
+        {
+            if (innerStabilityRadius < stopRadius)
+            {
+                innerStabilityRadius = stopRadius;
+            }
         }
 
         private void Update()
@@ -64,11 +90,23 @@ namespace MovementV2.Demo
                 Vector3 mouse = Input.mousePosition;
                 Vector3 world = cam.ScreenToWorldPoint(mouse);
                 targetWorld = new Vector2(world.x, world.y);
+                Vector2 clickOrigin = transform.position;
+                Vector2 deltaToClick = targetWorld.Value - clickOrigin;
+                initialTargetDistance = deltaToClick.magnitude;
+                hasInitialTargetDistance = initialTargetDistance > DirectionEpsilon;
+                if (hasInitialTargetDistance)
+                {
+                    lastStableTargetDirection = deltaToClick / initialTargetDistance;
+                }
+
+                smoothedThrustDirection = Vector2.zero;
             }
 
             if (!targetWorld.HasValue)
             {
                 runner.Desired = DesiredMotion.Stop;
+                hasInitialTargetDistance = false;
+                smoothedThrustDirection = Vector2.zero;
                 currentArrivalState = ArrivalState.Idle;
                 return;
             }
@@ -94,47 +132,73 @@ namespace MovementV2.Demo
         {
             if (distToTarget <= stopRadius && (rb == null || rb.velocity.magnitude <= stopSpeed))
             {
+                smoothedThrustDirection = Vector2.zero;
                 currentArrivalState = ArrivalState.Stop;
                 return DesiredMotion.Stop;
             }
 
-            Vector2 rHat = distToTarget > DirectionEpsilon ? (deltaToTarget / distToTarget) : Vector2.zero;
+            Vector2 rawTargetDirection = distToTarget > DirectionEpsilon ? (deltaToTarget / distToTarget) : Vector2.zero;
+            float innerBlend = ComputeInnerBlend(distToTarget);
+            Vector2 guidanceDirection = ResolveGuidanceDirection(rawTargetDirection);
+            float progress = ComputeProgress(distToTarget);
+            float correctionBlend = 0f;
             Vector2 desiredVelocity = rb == null
-                ? (rHat * desiredSpeed)
-                : ComputeDesiredVelocity(distToTarget, rHat);
+                ? (guidanceDirection * desiredSpeed)
+                : ComputeDesiredVelocity(distToTarget, guidanceDirection, innerBlend, out correctionBlend);
             Vector2 desiredThrustDirection = rb == null
                 ? desiredVelocity
-                : ComputeDesiredThrustDirection(desiredVelocity, rb.velocity, rHat);
+                : ComputeDesiredThrustDirection(
+                    desiredVelocity,
+                    rb.velocity,
+                    guidanceDirection,
+                    progress,
+                    correctionBlend,
+                    innerBlend,
+                    Time.deltaTime);
 
-            return desiredVelocity.sqrMagnitude > DirectionEpsilon
+            UpdateArrivalState(
+                desiredThrustDirection,
+                rb != null ? rb.velocity : Vector2.zero,
+                desiredVelocity,
+                correctionBlend);
+
+            return desiredVelocity.sqrMagnitude > DirectionEpsilon || desiredThrustDirection.sqrMagnitude > DirectionEpsilon
                 ? new DesiredMotion(desiredVelocity, 0f, desiredThrustDirection)
                 : DesiredMotion.Stop;
         }
 
-        private Vector2 ComputeDesiredVelocity(float distToTarget, Vector2 rHat)
+        private Vector2 ComputeDesiredVelocity(
+            float distToTarget,
+            Vector2 guidanceDirection,
+            float innerBlend,
+            out float correctionBlend)
         {
             Vector2 currentVelocity = rb.velocity;
             CascadedControlConfig config = runner.GetConfig();
             float approachSpeed = ComputeApproachSpeed(distToTarget, config);
-            float radialSpeed = Vector2.Dot(currentVelocity, rHat);
-            Vector2 lateralVelocity = currentVelocity - (radialSpeed * rHat);
-            float brakeStartDistance = ComputeBrakeStartDistance(rHat, currentVelocity, config);
-            float correctionBlend = ComputeCorrectionBlend(
+            float radialSpeed = Vector2.Dot(currentVelocity, guidanceDirection);
+            Vector2 lateralVelocity = currentVelocity - (radialSpeed * guidanceDirection);
+            float brakeStartDistance = ComputeBrakeStartDistance(guidanceDirection, currentVelocity, config);
+            float lateralCorrectionScale = ComputeLateralCorrectionScale(
+                distToTarget,
+                lateralVelocity,
+                config);
+            correctionBlend = ComputeCorrectionBlend(
                 distToTarget,
                 brakeStartDistance,
                 radialSpeed,
                 approachSpeed,
                 config);
 
-            Vector2 cruiseVelocity = rHat * approachSpeed;
-            Vector2 radialVelocity = rHat * radialSpeed;
+            Vector2 cruiseVelocity = guidanceDirection * approachSpeed;
+            Vector2 radialVelocity = guidanceDirection * radialSpeed;
             Vector2 desiredVelocity = cruiseVelocity
-                - (lateralVelocity * lateralCorrectionGain)
+                - (lateralVelocity * lateralCorrectionScale)
                 - (radialVelocity * (longitudinalCorrectionGain * correctionBlend));
+            float velocityFade = Mathf.Clamp01(1f - (innerBlend * innerVelocityFadeStrength));
+            desiredVelocity *= velocityFade;
 
-            currentArrivalState = correctionBlend > 0.01f ? ArrivalState.Brake : ArrivalState.Cruise;
-
-            return ClampDesiredVelocity(desiredVelocity, config, currentVelocity.magnitude);
+            return ClampDesiredVelocity(desiredVelocity, config, currentVelocity.magnitude, distToTarget, innerBlend);
         }
 
         private float ComputeApproachSpeed(float distToTarget, CascadedControlConfig config)
@@ -226,10 +290,92 @@ namespace MovementV2.Demo
             return Mathf.Max(distanceBlend, overspeedBlend);
         }
 
+        private float ComputeLateralCorrectionScale(
+            float distToTarget,
+            Vector2 lateralVelocity,
+            CascadedControlConfig config)
+        {
+            float maxAccel = ComputeMaxAcceleration(config);
+            if (maxAccel <= DirectionEpsilon)
+            {
+                return lateralCorrectionGain;
+            }
+
+            float lateralSpeed = lateralVelocity.magnitude;
+            if (lateralSpeed <= DirectionEpsilon)
+            {
+                return lateralCorrectionGain;
+            }
+
+            float lateralStopDistance = (lateralSpeed * lateralSpeed) / (2f * maxAccel);
+            float effectiveDistance = Mathf.Max(distToTarget - stopRadius, DirectionEpsilon);
+            float lateralUrgency = Mathf.Clamp01(
+                (lateralStopDistance + lateralCorrectionDistancePadding) / effectiveDistance);
+            return lateralCorrectionGain * Mathf.Lerp(1f, maxLateralCorrectionMultiplier, lateralUrgency);
+        }
+
+        private float ComputeMaxAcceleration(CascadedControlConfig config)
+        {
+            float maxThrust = config.limits.maxThrust;
+            if (maxThrust <= 0f)
+            {
+                return 0f;
+            }
+
+            float mass = rb != null ? Mathf.Max(0.0001f, rb.mass) : 1f;
+            return maxThrust / mass;
+        }
+
+        private float ComputeProgress(float distToTarget)
+        {
+            if (!hasInitialTargetDistance || initialTargetDistance <= DirectionEpsilon)
+            {
+                return 1f;
+            }
+
+            return Mathf.Clamp01(1f - (distToTarget / initialTargetDistance));
+        }
+
+        private float ComputeInnerBlend(float distToTarget)
+        {
+            if (distToTarget >= innerStabilityRadius)
+            {
+                return 0f;
+            }
+
+            if (distToTarget <= stopRadius)
+            {
+                return 1f;
+            }
+
+            float range = innerStabilityRadius - stopRadius;
+            if (range <= DirectionEpsilon)
+            {
+                return 1f;
+            }
+
+            return Mathf.Clamp01((innerStabilityRadius - distToTarget) / range);
+        }
+
+        private Vector2 ResolveGuidanceDirection(Vector2 rawTargetDirection)
+        {
+            if (rawTargetDirection.sqrMagnitude > DirectionEpsilon)
+            {
+                lastStableTargetDirection = rawTargetDirection;
+                return rawTargetDirection;
+            }
+
+            return lastStableTargetDirection.sqrMagnitude > DirectionEpsilon
+                ? lastStableTargetDirection.normalized
+                : transform.up;
+        }
+
         private Vector2 ClampDesiredVelocity(
             Vector2 desiredVelocity,
             CascadedControlConfig config,
-            float currentSpeed)
+            float currentSpeed,
+            float distToTarget,
+            float innerBlend)
         {
             float maxCommandSpeed = Mathf.Max(0f, desiredSpeed);
             if (desiredVelocity.sqrMagnitude <= DirectionEpsilon || maxCommandSpeed <= DirectionEpsilon)
@@ -240,6 +386,11 @@ namespace MovementV2.Demo
             float commandSpeed = desiredVelocity.magnitude;
             float clampedSpeed = Mathf.Min(commandSpeed, maxCommandSpeed);
             float minCommandSpeed = Mathf.Max(brakeCommandSpeed, config.desiredSpeedEpsilon + 0.01f);
+            if (innerDisableMinCommand && distToTarget <= innerStabilityRadius)
+            {
+                minCommandSpeed *= Mathf.Clamp01(1f - innerBlend);
+            }
+
             if (currentSpeed > stopSpeed && clampedSpeed < minCommandSpeed)
             {
                 clampedSpeed = Mathf.Min(maxCommandSpeed, minCommandSpeed);
@@ -251,20 +402,96 @@ namespace MovementV2.Demo
         private Vector2 ComputeDesiredThrustDirection(
             Vector2 desiredVelocity,
             Vector2 currentVelocity,
-            Vector2 fallbackDirection)
+            Vector2 fallbackDirection,
+            float progress,
+            float correctionBlend,
+            float innerBlend,
+            float dt)
         {
-            Vector2 velocityCorrection = desiredVelocity - currentVelocity;
-            if (velocityCorrection.sqrMagnitude > DirectionEpsilon)
+            Vector2 baseCorrection = desiredVelocity - currentVelocity;
+            Vector2 retrogradeDirection = currentVelocity.sqrMagnitude > DirectionEpsilon
+                ? -currentVelocity.normalized
+                : fallbackDirection;
+            float midpointBlend = ComputeMidpointBlend(progress);
+            float retrogradeBlend = Mathf.Clamp01(Mathf.Max(correctionBlend, midpointBlend * flipBiasStrength));
+            Vector2 retrogradeBias = retrogradeDirection * currentVelocity.magnitude * retrogradeBlend;
+            Vector2 desiredThrustVector = baseCorrection + retrogradeBias;
+
+            Vector2 rawDirection;
+            if (desiredThrustVector.sqrMagnitude > DirectionEpsilon)
             {
-                return velocityCorrection;
+                rawDirection = desiredThrustVector.normalized;
+            }
+            else if (desiredVelocity.sqrMagnitude > DirectionEpsilon)
+            {
+                rawDirection = desiredVelocity.normalized;
+            }
+            else
+            {
+                rawDirection = fallbackDirection;
             }
 
-            if (desiredVelocity.sqrMagnitude > DirectionEpsilon)
+            if (rawDirection.sqrMagnitude <= DirectionEpsilon)
             {
-                return desiredVelocity;
+                return smoothedThrustDirection.sqrMagnitude > DirectionEpsilon
+                    ? smoothedThrustDirection.normalized
+                    : Vector2.zero;
             }
 
-            return fallbackDirection;
+            if (smoothedThrustDirection.sqrMagnitude <= DirectionEpsilon || thrustDirectionSmoothing <= DirectionEpsilon || dt <= 0f)
+            {
+                smoothedThrustDirection = rawDirection;
+                return rawDirection;
+            }
+
+            float effectiveSmoothing = Mathf.Lerp(thrustDirectionSmoothing, thrustDirectionSmoothing * 3f, innerBlend);
+            float alpha = 1f - Mathf.Exp(-effectiveSmoothing * dt);
+            Vector2 blendedDirection = Vector2.Lerp(smoothedThrustDirection, rawDirection, alpha);
+            smoothedThrustDirection = blendedDirection.sqrMagnitude > DirectionEpsilon
+                ? blendedDirection.normalized
+                : rawDirection;
+            return smoothedThrustDirection;
+        }
+
+        private float ComputeMidpointBlend(float progress)
+        {
+            float halfWidth = flipBiasWidth * 0.5f;
+            float start = Mathf.Clamp01(flipBiasProgress - halfWidth);
+            float end = Mathf.Clamp01(flipBiasProgress + halfWidth);
+            if (end <= start + DirectionEpsilon)
+            {
+                return progress >= end ? 1f : 0f;
+            }
+
+            return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, end, progress));
+        }
+
+        private void UpdateArrivalState(
+            Vector2 desiredThrustDirection,
+            Vector2 currentVelocity,
+            Vector2 desiredVelocity,
+            float correctionBlend)
+        {
+            if (desiredVelocity.sqrMagnitude <= DirectionEpsilon && desiredThrustDirection.sqrMagnitude <= DirectionEpsilon)
+            {
+                currentArrivalState = ArrivalState.Stop;
+                return;
+            }
+
+            if (currentVelocity.sqrMagnitude <= DirectionEpsilon || desiredThrustDirection.sqrMagnitude <= DirectionEpsilon)
+            {
+                currentArrivalState = ArrivalState.Cruise;
+                return;
+            }
+
+            float alignment = Vector2.Dot(desiredThrustDirection.normalized, currentVelocity.normalized);
+            if (alignment < -0.35f)
+            {
+                currentArrivalState = ArrivalState.Flip;
+                return;
+            }
+
+            currentArrivalState = correctionBlend > 0.01f ? ArrivalState.Correct : ArrivalState.Cruise;
         }
 
         private Vector2 GetBrakeDirection(Vector2 currentVelocity, Vector2 fallbackDirection)
@@ -294,7 +521,9 @@ namespace MovementV2.Demo
             {
                 case ArrivalState.Cruise:
                     return Color.cyan;
-                case ArrivalState.Brake:
+                case ArrivalState.Correct:
+                    return CorrectStateColor;
+                case ArrivalState.Flip:
                     return Color.red;
                 case ArrivalState.Stop:
                     return Color.yellow;
